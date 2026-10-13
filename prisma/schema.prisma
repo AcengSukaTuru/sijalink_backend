@@ -1,0 +1,168 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  SUPERVISOR
+  TECHNICIAN
+}
+
+enum CustomerStatus {
+  ACTIVE
+  ISOLATED
+  INACTIVE
+}
+
+enum TicketStatus {
+  NEW
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+enum RouterStatus {
+  UNKNOWN
+  ONLINE
+  OFFLINE
+}
+
+model User {
+  id              String       @id @default(cuid())
+  name            String
+  email           String       @unique
+  passwordHash    String
+  role            UserRole     @default(TECHNICIAN)
+  active          Boolean      @default(true)
+  assignedTickets Ticket[]     @relation("TicketAssignee")
+  assignedSpk     Spk[]        @relation("SpkAssignee")
+  attendance      Attendance[]
+  notifications   Notification[]
+  auditLogs       AuditLog[]
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([role, active])
+}
+
+model Customer {
+  id          String         @id @default(cuid())
+  accountCode String         @unique
+  name        String
+  phone       String?
+  address     String?
+  plan        String?
+  status      CustomerStatus @default(ACTIVE)
+  installationDate DateTime?
+  pppoeUsername String?
+  odp          String?
+  routerId     String?
+  router       Router?       @relation(fields: [routerId], references: [id], onDelete: SetNull)
+  tickets     Ticket[]
+  spks        Spk[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([name])
+  @@index([status])
+}
+
+model Ticket {
+  id          String       @id @default(cuid())
+  number      String       @unique
+  title       String
+  description String?
+  priority    String       @default("NORMAL")
+  status      TicketStatus @default(NEW)
+  customerId  String?
+  customer    Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  assigneeId  String?
+  assignee    User?        @relation("TicketAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([status, createdAt])
+  @@index([assigneeId, status])
+}
+
+model Attendance {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  checkInAt   DateTime?
+  checkOutAt  DateTime?
+  checkInLat  Float?
+  checkInLng  Float?
+  checkOutLat Float?
+  checkOutLng Float?
+  workDate    DateTime  @db.Date
+  createdAt   DateTime  @default(now())
+
+  @@unique([userId, workDate])
+  @@index([workDate])
+}
+
+model Spk {
+  id          String       @id @default(cuid())
+  number      String       @unique
+  workType    String
+  description String?
+  address     String
+  status      TicketStatus @default(NEW)
+  customerId  String?
+  customer    Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  assigneeId  String?
+  assignee    User?        @relation("SpkAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([status, createdAt])
+  @@index([assigneeId, status])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  body      String
+  spkNumber String?
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, readAt, createdAt])
+}
+
+model Router {
+  id              String       @id @default(cuid())
+  name            String       @unique
+  managementAddress String
+  location        String?
+  version         String?
+  enabled         Boolean      @default(true)
+  status          RouterStatus @default(UNKNOWN)
+  lastCheckedAt   DateTime?
+  customers       Customer[]
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String
+  actor      User     @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  entityType String
+  entityId   String
+  action     String
+  before     Json?
+  after      Json?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId, createdAt])
+  @@index([actorId, createdAt])
+}
