@@ -5,6 +5,7 @@ import { CurrentUser, JwtAuthGuard } from './auth.js';
 import type { Principal } from './auth.js';
 import { AuthService } from './auth.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { publicProfile } from '../api/profile.controller.js';
 
 class LoginDto {
   @IsEmail() email!: string;
@@ -24,16 +25,21 @@ export class AuthController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   async me(@CurrentUser() user: Principal) {
-    return this.prisma.user.findUniqueOrThrow({
-      where: { id: user.sub },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        active: true,
-        createdAt: true,
-      },
-    });
+    return publicProfile(
+      await this.prisma.user.findUniqueOrThrow({
+        where: { id: user.sub },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          active: true,
+          address: true,
+          phone: true,
+          photoKey: true,
+          createdAt: true,
+        },
+      }),
+    );
   }
 }

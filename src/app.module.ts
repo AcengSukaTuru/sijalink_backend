@@ -14,6 +14,16 @@ import { ApiModule } from './api/api.module.js';
         if (!env.JWT_SECRET || env.JWT_SECRET.length < 32) {
           throw new Error('JWT_SECRET must contain at least 32 characters.');
         }
+        if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(env.WORK_START_TIME ?? '08:00')) {
+          throw new Error('WORK_START_TIME must use HH:mm (24-hour time).');
+        }
+        try {
+          new Intl.DateTimeFormat('en-US', {
+            timeZone: env.BUSINESS_TIMEZONE ?? 'Asia/Jakarta',
+          });
+        } catch {
+          throw new Error('BUSINESS_TIMEZONE must be a valid IANA time zone.');
+        }
         return env;
       },
     }),

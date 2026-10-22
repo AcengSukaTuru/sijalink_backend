@@ -4,6 +4,9 @@ REST API untuk aplikasi teknisi ISP SijaLink. Dibangun dengan NestJS,
 TypeScript, PostgreSQL, dan Prisma. Semua endpoint aplikasi berada di bawah
 `/api/v1`; dokumentasi OpenAPI tersedia di `/docs`.
 
+Kebutuhan integrasi aplikasi Flutter, daftar endpoint yang diperlukan, dan
+gap implementasi tersedia di [docs/frontend-integration.md](docs/frontend-integration.md).
+
 ## Menjalankan lokal
 
 ```bash
@@ -81,7 +84,43 @@ mekanisme provisioning internal yang aman.
 - `BUSINESS_TIMEZONE`: zona waktu untuk penentuan hari attendance, default
   `Asia/Jakarta`; timestamp tetap tersimpan UTC.
 
-Aturan jam kerja keterlambatan belum ditetapkan, sehingga summary attendance
-mengembalikan `totalLate: null`. Router hanya berupa inventaris metadata dan
+Ringkasan presensi menggunakan jam masuk dari `WORK_START_TIME` (default 08:00)
+di zona `BUSINESS_TIMEZONE`. Router hanya berupa inventaris metadata dan
 status tetap `UNKNOWN` sampai benar-benar diperiksa. Backend tidak menjalankan
 command RouterOS atau operasi GenieACS/reboot.
+
+## Integrasi teknisi fase 1–2
+
+Jalankan `npm run db:generate` dan `npx prisma migrate deploy` sebelum memakai
+endpoint baru. Teknisi hanya melihat SPK/tiket miliknya dan hanya dapat mengubah
+status berurutan `NEW` → `IN_PROGRESS` → `DONE`; admin/supervisor boleh membatalkan
+pekerjaan aktif. Token akun nonaktif tidak berlaku lagi pada request berikutnya.
+
+- `POST /api/v1/attendance/check-in` dan `/check-out` wajib `multipart/form-data`
+  berisi `photo` (JPEG/PNG/WebP, maksimal 5 MB); `latitude` dan `longitude`
+  opsional tetapi harus diberikan berpasangan. Foto ada di `PRIVATE_UPLOAD_DIR`
+  (default `private-uploads`), **bukan direktori publik**. Siapkan volume persisten
+  dengan backup dan pembatasan akses; penyimpanan lokal tidak cocok untuk beberapa
+  replika tanpa shared storage. Respons presensi berisi `checkInPhotoUrl` dan
+  `checkOutPhotoUrl`; akses foto tetap perlu Bearer token via
+  `GET /api/v1/attendance/:id/photo/check-in|check-out`.
+- `POST /api/v1/attendance/leave-requests` menerima
+  `{ "type": "SICK" | "PERMISSION", "reason": "...", "startDate": "YYYY-MM-DD", "endDate": "YYYY-MM-DD" }`.
+  `GET /api/v1/attendance/leave-requests` menampilkan permohonan sendiri untuk
+  teknisi, seluruhnya untuk admin/supervisor (`page`, `limit`, `status`, `userId`).
+  Admin/supervisor memutuskan lewat `PATCH /api/v1/attendance/leave-requests/:id/review`
+  dengan `{ "status": "APPROVED" | "REJECTED" }`. Maksimal 31 hari, tidak dapat
+  mulai sebelum hari ini, tidak boleh tumpang tindih dengan permohonan aktif
+  atau check-in; persetujuan ulang memeriksa benturan check-in. Ditolak boleh
+  diajukan ulang. Rekap bulanan menghitung `totalPresent`, `totalLate`,
+  `totalSick`, dan `totalPermission` (dua terakhir hanya yang disetujui).
+- `GET /api/v1/auth/me` kini menampilkan `address`, `phone`, `photoUrl`, dan
+  `router: null` (belum ada relasi router-teknisi). `PATCH /api/v1/users/me`
+  hanya menerima `address` dan `phone`; email/role tetap tidak dapat diubah
+  sendiri. Foto profil `PUT /api/v1/users/me/photo` menggunakan multipart field
+  `photo`, `GET /api/v1/users/me/photo` menampilkan foto milik sendiri, dan
+  `DELETE /api/v1/users/me/photo` menghapusnya.
+
+Jam masuk default `WORK_START_TIME=08:00` dalam `BUSINESS_TIMEZONE=Asia/Jakarta`;
+ubah sebelum operasional bila aturan kerja berbeda. Keduanya dipakai untuk
+perhitungan keterlambatan; backend belum menerapkan libur atau jadwal shift.

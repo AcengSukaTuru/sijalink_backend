@@ -15,6 +15,18 @@ describe('API business rules', () => {
       ConflictException,
     );
     expect(() => assertStatusTransition('NEW', 'IN_PROGRESS')).not.toThrow();
+    expect(() => assertStatusTransition('NEW', 'DONE')).toThrow(
+      ConflictException,
+    );
+    expect(() => assertStatusTransition('NEW', 'CANCELLED')).toThrow(
+      ConflictException,
+    );
+    expect(() =>
+      assertStatusTransition('NEW', 'CANCELLED', 'SUPERVISOR'),
+    ).not.toThrow();
+    expect(() => assertStatusTransition('IN_PROGRESS', 'IN_PROGRESS')).toThrow(
+      ConflictException,
+    );
   });
 
   it('bounds pagination and defaults to a safe page size', () => {

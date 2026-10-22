@@ -1,14 +1,18 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
-import type { TicketStatus } from '@prisma/client';
+import type { TicketStatus, UserRole } from '@prisma/client';
 
 export function assertStatusTransition(
   current: TicketStatus,
   next: TicketStatus,
+  role: UserRole = 'TECHNICIAN',
 ): void {
-  if (
-    current === 'CANCELLED' ||
-    (current === 'DONE' && next === 'IN_PROGRESS')
-  ) {
+  const valid =
+    (current === 'NEW' && next === 'IN_PROGRESS') ||
+    (current === 'IN_PROGRESS' && next === 'DONE') ||
+    (role !== 'TECHNICIAN' &&
+      ['NEW', 'IN_PROGRESS'].includes(current) &&
+      next === 'CANCELLED');
+  if (!valid) {
     throw new ConflictException('Transisi status tidak valid.');
   }
 }

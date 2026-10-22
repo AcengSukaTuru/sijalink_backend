@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
+import { PrismaService } from '../prisma/prisma.service.js';
 
 export type Principal = {
   sub: string;
@@ -24,17 +25,31 @@ export const Roles = (...roles: Principal['role'][]) =>
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  constructor(private readonly jwt: JwtService) {}
+  constructor(
+    private readonly jwt: JwtService,
+    private readonly db: PrismaService,
+  ) {}
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest();
     const token = req.headers.authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
     if (!token) throw new UnauthorizedException('Bearer token diperlukan.');
+    let payload: Principal;
     try {
-      req.user = await this.jwt.verifyAsync<Principal>(token);
-      return true;
+      payload = await this.jwt.verifyAsync<Principal>(token);
     } catch {
       throw new UnauthorizedException('Token tidak valid atau kedaluwarsa.');
     }
+    const user = await this.db.user.findUnique({
+      where: { id: payload.sub },
+      select: { id: true, email: true, role: true, active: true },
+    });
+    if (!user?.active) throw new UnauthorizedException('Akun tidak aktif.');
+    req.user = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+    } satisfies Principal;
+    return true;
   }
 }
 

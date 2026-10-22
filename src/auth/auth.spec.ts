@@ -1,6 +1,6 @@
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { RolesGuard } from './auth.js';
+import { JwtAuthGuard, RolesGuard } from './auth.js';
 
 describe('RolesGuard', () => {
   const guard = new RolesGuard({
@@ -24,5 +24,29 @@ describe('RolesGuard', () => {
       ForbiddenException,
     );
     expect(() => guard.canActivate(context())).toThrow(ForbiddenException);
+  });
+});
+
+describe('JwtAuthGuard', () => {
+  it('rejects a token when its user has been disabled', async () => {
+    const jwt = { verifyAsync: vi.fn().mockResolvedValue({ sub: 'disabled' }) };
+    const db = {
+      user: {
+        findUnique: vi
+          .fn()
+          .mockResolvedValue({ id: 'disabled', active: false }),
+      },
+    };
+    const guard = new JwtAuthGuard(jwt as never, db as never);
+    const context = {
+      switchToHttp: () => ({
+        getRequest: () => ({
+          headers: { authorization: 'Bearer valid-token' },
+        }),
+      }),
+    } as never;
+    await expect(guard.canActivate(context)).rejects.toThrow(
+      UnauthorizedException,
+    );
   });
 });

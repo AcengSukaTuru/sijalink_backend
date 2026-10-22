@@ -32,41 +32,57 @@ enum RouterStatus {
   OFFLINE
 }
 
+enum LeaveType {
+  SICK
+  PERMISSION
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model User {
-  id              String       @id @default(cuid())
+  id              String         @id @default(cuid())
   name            String
-  email           String       @unique
+  email           String         @unique
   passwordHash    String
-  role            UserRole     @default(TECHNICIAN)
-  active          Boolean      @default(true)
-  assignedTickets Ticket[]     @relation("TicketAssignee")
-  assignedSpk     Spk[]        @relation("SpkAssignee")
+  role            UserRole       @default(TECHNICIAN)
+  active          Boolean        @default(true)
+  address         String?
+  phone           String?
+  photoKey        String?
+  assignedTickets Ticket[]       @relation("TicketAssignee")
+  assignedSpk     Spk[]          @relation("SpkAssignee")
   attendance      Attendance[]
+  leaveRequests   LeaveRequest[] @relation("LeaveApplicant")
+  reviewedLeaves  LeaveRequest[] @relation("LeaveReviewer")
   notifications   Notification[]
   auditLogs       AuditLog[]
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
   @@index([role, active])
 }
 
 model Customer {
-  id          String         @id @default(cuid())
-  accountCode String         @unique
-  name        String
-  phone       String?
-  address     String?
-  plan        String?
-  status      CustomerStatus @default(ACTIVE)
+  id               String         @id @default(cuid())
+  accountCode      String         @unique
+  name             String
+  phone            String?
+  address          String?
+  plan             String?
+  status           CustomerStatus @default(ACTIVE)
   installationDate DateTime?
-  pppoeUsername String?
-  odp          String?
-  routerId     String?
-  router       Router?       @relation(fields: [routerId], references: [id], onDelete: SetNull)
-  tickets     Ticket[]
-  spks        Spk[]
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  pppoeUsername    String?
+  odp              String?
+  routerId         String?
+  router           Router?        @relation(fields: [routerId], references: [id], onDelete: SetNull)
+  tickets          Ticket[]
+  spks             Spk[]
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 
   @@index([name])
   @@index([status])
@@ -91,20 +107,41 @@ model Ticket {
 }
 
 model Attendance {
-  id          String    @id @default(cuid())
-  userId      String
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  checkInAt   DateTime?
-  checkOutAt  DateTime?
-  checkInLat  Float?
-  checkInLng  Float?
-  checkOutLat Float?
-  checkOutLng Float?
-  workDate    DateTime  @db.Date
-  createdAt   DateTime  @default(now())
+  id               String    @id @default(cuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  checkInAt        DateTime?
+  checkOutAt       DateTime?
+  checkInLat       Float?
+  checkInLng       Float?
+  checkOutLat      Float?
+  checkOutLng      Float?
+  checkInPhotoKey  String?
+  checkOutPhotoKey String?
+  workDate         DateTime  @db.Date
+  createdAt        DateTime  @default(now())
 
   @@unique([userId, workDate])
   @@index([workDate])
+}
+
+model LeaveRequest {
+  id           String      @id @default(cuid())
+  userId       String
+  user         User        @relation("LeaveApplicant", fields: [userId], references: [id], onDelete: Cascade)
+  type         LeaveType
+  reason       String
+  startDate    DateTime    @db.Date
+  endDate      DateTime    @db.Date
+  status       LeaveStatus @default(PENDING)
+  reviewedById String?
+  reviewer     User?       @relation("LeaveReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt   DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([userId, status, startDate, endDate])
+  @@index([status, createdAt])
 }
 
 model Spk {
@@ -126,30 +163,30 @@ model Spk {
 }
 
 model Notification {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   title     String
   body      String
   spkNumber String?
   readAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([userId, readAt, createdAt])
 }
 
 model Router {
-  id              String       @id @default(cuid())
-  name            String       @unique
+  id                String       @id @default(cuid())
+  name              String       @unique
   managementAddress String
-  location        String?
-  version         String?
-  enabled         Boolean      @default(true)
-  status          RouterStatus @default(UNKNOWN)
-  lastCheckedAt   DateTime?
-  customers       Customer[]
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  location          String?
+  version           String?
+  enabled           Boolean      @default(true)
+  status            RouterStatus @default(UNKNOWN)
+  lastCheckedAt     DateTime?
+  customers         Customer[]
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
 }
 
 model AuditLog {

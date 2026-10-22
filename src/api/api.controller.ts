@@ -5,14 +5,26 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   NotFoundException,
   Param,
   Patch,
   Post,
   Query,
+  StreamableFile,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags, PartialType } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { Type } from 'class-transformer';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiTags,
+  PartialType,
+} from '@nestjs/swagger';
 import {
   IsBoolean,
   IsDateString,
@@ -30,6 +42,12 @@ import { randomUUID } from 'node:crypto';
 import { CurrentUser, JwtAuthGuard, Roles, RolesGuard } from '../auth/auth.js';
 import type { Principal } from '../auth/auth.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import {
+  PrivatePhotosService,
+  type PhotoUpload,
+} from './private-photos.service.js';
+import { businessDay, isLate, workDay } from './leave-rules.js';
+import { publicAttendance } from './attendance-response.js';
 import {
   assertStatusTransition,
   pagination,
@@ -81,8 +99,8 @@ class AssignmentDto {
   @IsOptional() @IsString() assigneeId?: string | null;
 }
 class AttendanceDto {
-  @IsOptional() @IsNumber() latitude?: number;
-  @IsOptional() @IsNumber() longitude?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() latitude?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() longitude?: number;
 }
 class UserDto {
   @IsString() name!: string;
@@ -110,7 +128,10 @@ const ticketInclude = {
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller()
 export class ApiController {
-  constructor(private readonly db: PrismaService) {}
+  constructor(
+    private readonly db: PrismaService,
+    private readonly photos: PrivatePhotosService,
+  ) {}
 
   @ApiTags('Users')
   @Get('users')
@@ -215,12 +236,16 @@ export class ApiController {
 
   @ApiTags('Tickets')
   @Get('tickets')
-  async tickets(@Query() q: PageDto) {
+  async tickets(@Query() q: PageDto, @CurrentUser() actor: Principal) {
     assertStatusFilter(q.status, ['NEW', 'IN_PROGRESS', 'DONE', 'CANCELLED']);
     const p = pagination(q.page, q.limit);
     const where: any = {
       ...(q.status ? { status: q.status } : {}),
-      ...(q.assigneeId ? { assigneeId: q.assigneeId } : {}),
+      ...(actor.role === 'TECHNICIAN'
+        ? { assigneeId: actor.sub }
+        : q.assigneeId
+          ? { assigneeId: q.assigneeId }
+          : {}),
       ...(q.search
         ? {
             OR: [
@@ -246,32 +271,78 @@ export class ApiController {
   }
   @ApiTags('Tickets')
   @Get('tickets/:id')
-  ticket(@Param('id') id: string) {
-    return this.db.ticket.findUniqueOrThrow({
-      where: { id },
+  async ticket(@Param('id') id: string, @CurrentUser() actor: Principal) {
+    const result = await this.db.ticket.findFirst({
+      where: {
+        id,
+        ...(actor.role === 'TECHNICIAN' ? { assigneeId: actor.sub } : {}),
+      },
       include: ticketInclude,
     });
+    if (!result) throw new NotFoundException();
+    return result;
   }
   @ApiTags('Tickets')
   @Post('tickets')
   @Roles('ADMIN', 'SUPERVISOR', 'TECHNICIAN')
-  createTicket(@Body() d: TicketDto) {
+  createTicket(@Body() d: TicketDto, @CurrentUser() actor: Principal) {
     return this.db.ticket.create({
       data: Object.assign({}, d, {
         number: `TKT-${Date.now()}-${randomUUID().slice(0, 8)}`,
+        ...(actor.role === 'TECHNICIAN' ? { assigneeId: actor.sub } : {}),
       }),
       include: ticketInclude,
     });
   }
   @ApiTags('Tickets')
   @Patch('tickets/:id/status')
-  async ticketStatus(@Param('id') id: string, @Body() d: StatusDto) {
-    const prev = await this.db.ticket.findUniqueOrThrow({ where: { id } });
-    assertStatusTransition(prev.status, d.status);
-    return this.db.ticket.update({
-      where: { id },
-      data: { status: d.status },
-      include: ticketInclude,
+  async ticketStatus(
+    @Param('id') id: string,
+    @Body() d: StatusDto,
+    @CurrentUser() actor: Principal,
+  ) {
+    return this.db.$transaction(async (tx) => {
+      const prev = await tx.ticket.findFirst({
+        where: {
+          id,
+          ...(actor.role === 'TECHNICIAN' ? { assigneeId: actor.sub } : {}),
+        },
+      });
+      if (!prev) throw new NotFoundException();
+      assertStatusTransition(prev.status, d.status, actor.role);
+      const changed = await tx.ticket.updateMany({
+        where: {
+          id,
+          status: prev.status,
+          ...(actor.role === 'TECHNICIAN' ? { assigneeId: actor.sub } : {}),
+        },
+        data: { status: d.status },
+      });
+      if (!changed.count)
+        throw new ConflictException('Pekerjaan berubah; muat ulang.');
+      const updated = await tx.ticket.findUniqueOrThrow({
+        where: { id },
+        include: ticketInclude,
+      });
+      await tx.auditLog.create({
+        data: {
+          actorId: actor.sub,
+          entityType: 'TICKET',
+          entityId: id,
+          action: 'STATUS_CHANGED',
+          before: { status: prev.status },
+          after: { status: updated.status },
+        },
+      });
+      if (updated.assigneeId && updated.assigneeId !== actor.sub)
+        await tx.notification.create({
+          data: {
+            userId: updated.assigneeId,
+            title: `Tiket diperbarui: ${updated.number}`,
+            body: `Status pekerjaan berubah menjadi ${updated.status}`,
+          },
+        });
+      return updated;
     });
   }
   @ApiTags('Tickets')
@@ -287,12 +358,16 @@ export class ApiController {
 
   @ApiTags('SPK')
   @Get('spk')
-  async spks(@Query() q: PageDto) {
+  async spks(@Query() q: PageDto, @CurrentUser() actor: Principal) {
     assertStatusFilter(q.status, ['NEW', 'IN_PROGRESS', 'DONE', 'CANCELLED']);
     const p = pagination(q.page, q.limit);
     const where: any = {
       ...(q.status ? { status: q.status } : {}),
-      ...(q.assigneeId ? { assigneeId: q.assigneeId } : {}),
+      ...(actor.role === 'TECHNICIAN'
+        ? { assigneeId: actor.sub }
+        : q.assigneeId
+          ? { assigneeId: q.assigneeId }
+          : {}),
       ...(q.search
         ? {
             OR: [
@@ -318,11 +393,16 @@ export class ApiController {
   }
   @ApiTags('SPK')
   @Get('spk/:id')
-  spk(@Param('id') id: string) {
-    return this.db.spk.findUniqueOrThrow({
-      where: { id },
+  async spk(@Param('id') id: string, @CurrentUser() actor: Principal) {
+    const result = await this.db.spk.findFirst({
+      where: {
+        id,
+        ...(actor.role === 'TECHNICIAN' ? { assigneeId: actor.sub } : {}),
+      },
       include: ticketInclude,
     });
+    if (!result) throw new NotFoundException();
+    return result;
   }
   @ApiTags('SPK')
   @Post('spk')
@@ -343,11 +423,26 @@ export class ApiController {
     @CurrentUser() actor: Principal,
   ) {
     return this.db.$transaction(async (tx) => {
-      const previous = await tx.spk.findUniqueOrThrow({ where: { id } });
-      assertStatusTransition(previous.status, d.status);
-      const updated = await tx.spk.update({
-        where: { id },
+      const previous = await tx.spk.findFirst({
+        where: {
+          id,
+          ...(actor.role === 'TECHNICIAN' ? { assigneeId: actor.sub } : {}),
+        },
+      });
+      if (!previous) throw new NotFoundException();
+      assertStatusTransition(previous.status, d.status, actor.role);
+      const changed = await tx.spk.updateMany({
+        where: {
+          id,
+          status: previous.status,
+          ...(actor.role === 'TECHNICIAN' ? { assigneeId: actor.sub } : {}),
+        },
         data: { status: d.status },
+      });
+      if (!changed.count)
+        throw new ConflictException('Pekerjaan berubah; muat ulang.');
+      const updated = await tx.spk.findUniqueOrThrow({
+        where: { id },
         include: ticketInclude,
       });
       await tx.auditLog.create({
@@ -360,7 +455,7 @@ export class ApiController {
           after: { status: updated.status },
         },
       });
-      if (updated.assigneeId)
+      if (updated.assigneeId && updated.assigneeId !== actor.sub)
         await tx.notification.create({
           data: {
             userId: updated.assigneeId,
@@ -412,33 +507,63 @@ export class ApiController {
 
   @ApiTags('Attendance')
   @Post('attendance/check-in')
-  async checkIn(@CurrentUser() user: Principal, @Body() d: AttendanceDto) {
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['photo'],
+      properties: {
+        photo: { type: 'string', format: 'binary' },
+        latitude: { type: 'number' },
+        longitude: { type: 'number' },
+      },
+    },
+  })
+  @UseInterceptors(
+    FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }),
+  )
+  async checkIn(
+    @CurrentUser() user: Principal,
+    @Body() d: AttendanceDto,
+    @UploadedFile() file?: PhotoUpload,
+  ) {
     this.validateLocation(d);
-    const date = this.businessDate();
-    const current = await this.db.attendance.findUnique({
-      where: { userId_workDate: { userId: user.sub, workDate: date } },
-    });
-    assertCheckInAllowed(Boolean(current?.checkInAt));
-    if (current)
-      return this.db.attendance.update({
-        where: { id: current.id },
-        data: {
-          checkInAt: new Date(),
-          checkInLat: d.latitude,
-          checkInLng: d.longitude,
-        },
-      });
+    const key = await this.photos.save(file);
     try {
-      return await this.db.attendance.create({
-        data: {
-          userId: user.sub,
-          workDate: date,
+      const result = await this.db.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${user.sub}))::text`;
+        const date = businessDay();
+        const leave = await tx.leaveRequest.findFirst({
+          where: {
+            userId: user.sub,
+            status: 'APPROVED',
+            startDate: { lte: date },
+            endDate: { gte: date },
+          },
+        });
+        if (leave)
+          throw new ConflictException(
+            'Hari ini sudah tercatat sebagai izin disetujui.',
+          );
+        const current = await tx.attendance.findUnique({
+          where: { userId_workDate: { userId: user.sub, workDate: date } },
+        });
+        assertCheckInAllowed(Boolean(current?.checkInAt));
+        const data = {
           checkInAt: new Date(),
           checkInLat: d.latitude,
           checkInLng: d.longitude,
-        },
+          checkInPhotoKey: key,
+        };
+        return current
+          ? tx.attendance.update({ where: { id: current.id }, data })
+          : tx.attendance.create({
+              data: { userId: user.sub, workDate: date, ...data },
+            });
       });
+      return publicAttendance(result);
     } catch (error) {
+      await this.photos.remove(key);
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
@@ -450,40 +575,93 @@ export class ApiController {
   }
   @ApiTags('Attendance')
   @Post('attendance/check-out')
-  async checkOut(@CurrentUser() user: Principal, @Body() d: AttendanceDto) {
-    this.validateLocation(d);
-    const date = this.businessDate();
-    const current = await this.db.attendance.findUnique({
-      where: { userId_workDate: { userId: user.sub, workDate: date } },
-    });
-    assertCheckOutAllowed(
-      Boolean(current?.checkInAt),
-      Boolean(current?.checkOutAt),
-    );
-    const result = await this.db.attendance.updateMany({
-      where: { id: current!.id, checkOutAt: null },
-      data: {
-        checkOutAt: new Date(),
-        checkOutLat: d.latitude,
-        checkOutLng: d.longitude,
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['photo'],
+      properties: {
+        photo: { type: 'string', format: 'binary' },
+        latitude: { type: 'number' },
+        longitude: { type: 'number' },
       },
-    });
-    if (!result.count)
-      throw new ConflictException('Check-out hari ini sudah tercatat.');
-    return this.db.attendance.findUniqueOrThrow({ where: { id: current!.id } });
+    },
+  })
+  @UseInterceptors(
+    FileInterceptor('photo', { limits: { fileSize: 5 * 1024 * 1024 } }),
+  )
+  async checkOut(
+    @CurrentUser() user: Principal,
+    @Body() d: AttendanceDto,
+    @UploadedFile() file?: PhotoUpload,
+  ) {
+    this.validateLocation(d);
+    const key = await this.photos.save(file);
+    try {
+      const result = await this.db.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${user.sub}))::text`;
+        const date = businessDay();
+        const current = await tx.attendance.findUnique({
+          where: { userId_workDate: { userId: user.sub, workDate: date } },
+        });
+        assertCheckOutAllowed(
+          Boolean(current?.checkInAt),
+          Boolean(current?.checkOutAt),
+        );
+        const result = await tx.attendance.updateMany({
+          where: { id: current!.id, checkOutAt: null },
+          data: {
+            checkOutAt: new Date(),
+            checkOutLat: d.latitude,
+            checkOutLng: d.longitude,
+            checkOutPhotoKey: key,
+          },
+        });
+        if (!result.count)
+          throw new ConflictException('Check-out hari ini sudah tercatat.');
+        return tx.attendance.findUniqueOrThrow({ where: { id: current!.id } });
+      });
+      return publicAttendance(result);
+    } catch (error) {
+      await this.photos.remove(key);
+      throw error;
+    }
   }
   @ApiTags('Attendance')
   @Get('attendance/today')
-  today(@CurrentUser() user: Principal) {
-    return this.db.attendance.findUnique({
+  async today(@CurrentUser() user: Principal) {
+    const record = await this.db.attendance.findUnique({
       where: {
-        userId_workDate: { userId: user.sub, workDate: this.businessDate() },
+        userId_workDate: { userId: user.sub, workDate: businessDay() },
       },
     });
+    return record ? publicAttendance(record) : null;
+  }
+  @ApiTags('Attendance')
+  @Get('attendance/:id/photo/:kind')
+  @Header('X-Content-Type-Options', 'nosniff')
+  @Header('Cache-Control', 'private, no-store')
+  async attendancePhoto(
+    @CurrentUser() user: Principal,
+    @Param('id') id: string,
+    @Param('kind') kind: string,
+  ): Promise<StreamableFile> {
+    if (kind !== 'check-in' && kind !== 'check-out')
+      throw new NotFoundException();
+    const record = await this.db.attendance.findFirst({
+      where: {
+        id,
+        ...(user.role === 'TECHNICIAN' ? { userId: user.sub } : {}),
+      },
+    });
+    if (!record) throw new NotFoundException();
+    return this.photos.open(
+      kind === 'check-in' ? record.checkInPhotoKey : record.checkOutPhotoKey,
+    );
   }
   @ApiTags('Attendance')
   @Get('attendance/history')
-  history(
+  async history(
     @CurrentUser() user: Principal,
     @Query('from') from?: string,
     @Query('to') to?: string,
@@ -491,16 +669,20 @@ export class ApiController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
+    if (from) workDay(from);
+    if (to) workDay(to);
+    if (from && to && from > to)
+      throw new BadRequestException('from tidak boleh setelah to.');
     const p = pagination(page, limit);
     const owner = user.role === 'TECHNICIAN' ? user.sub : (userId ?? undefined);
-    return this.db.attendance.findMany({
+    const rows = await this.db.attendance.findMany({
       where: {
         ...(owner ? { userId: owner } : {}),
         ...(from || to
           ? {
               workDate: {
-                ...(from ? { gte: new Date(from) } : {}),
-                ...(to ? { lte: new Date(to) } : {}),
+                ...(from ? { gte: workDay(from) } : {}),
+                ...(to ? { lte: workDay(to) } : {}),
               },
             }
           : {}),
@@ -508,6 +690,7 @@ export class ApiController {
       ...p,
       orderBy: { workDate: 'desc' },
     });
+    return rows.map(publicAttendance);
   }
   @ApiTags('Attendance')
   @Get('attendance/summary')
@@ -515,8 +698,8 @@ export class ApiController {
     @CurrentUser() user: Principal,
     @Query('month') month?: string,
   ) {
-    const m = month ?? this.businessDate().toISOString().slice(0, 7);
-    if (!/^\d{4}-\d{2}$/.test(m))
+    const m = month ?? businessDay().toISOString().slice(0, 7);
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(m))
       throw new BadRequestException('month harus berformat YYYY-MM.');
     const from = new Date(`${m}-01T00:00:00.000Z`);
     const to = new Date(
@@ -526,12 +709,34 @@ export class ApiController {
       where: { userId: user.sub, workDate: { gte: from, lt: to } },
       orderBy: { workDate: 'asc' },
     });
+    const leaves = await this.db.leaveRequest.findMany({
+      where: {
+        userId: user.sub,
+        status: 'APPROVED',
+        startDate: { lt: to },
+        endDate: { gte: from },
+      },
+    });
+    const leaveDays = {
+      SICK: new Set<string>(),
+      PERMISSION: new Set<string>(),
+    };
+    for (const leave of leaves) {
+      for (
+        let day = Math.max(leave.startDate.getTime(), from.getTime());
+        day <= Math.min(leave.endDate.getTime(), to.getTime() - 86400000);
+        day += 86400000
+      )
+        leaveDays[leave.type].add(new Date(day).toISOString().slice(0, 10));
+    }
     return {
       month: m,
       totalPresent: rows.filter((r) => r.checkInAt).length,
-      totalLate: null,
-      lateRuleConfigured: false,
-      records: rows,
+      totalLate: rows.filter((r) => r.checkInAt && isLate(r.checkInAt)).length,
+      totalSick: leaveDays.SICK.size,
+      totalPermission: leaveDays.PERMISSION.size,
+      lateRuleConfigured: true,
+      records: rows.map(publicAttendance),
     };
   }
 
@@ -655,23 +860,6 @@ export class ApiController {
     return { success: true };
   }
 
-  private businessDate() {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: process.env.BUSINESS_TIMEZONE ?? 'Asia/Jakarta',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).formatToParts(new Date());
-    const part = (type: Intl.DateTimeFormatPartTypes) =>
-      parts.find((value) => value.type === type)!.value;
-    return new Date(
-      Date.UTC(
-        Number(part('year')),
-        Number(part('month')) - 1,
-        Number(part('day')),
-      ),
-    );
-  }
   private validateLocation(d: AttendanceDto) {
     validateCoordinates(d.latitude, d.longitude);
   }
