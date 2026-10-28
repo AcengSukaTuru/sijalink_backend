@@ -5,7 +5,8 @@ services:
       dockerfile: deploy/Dockerfile
     restart: unless-stopped
     ports:
-      - '${PORT:-3000}:3000'
+      # API sengaja bind ke semua interface agar bisa diakses FE via LAN/NAT router.
+      - '${HOST_API_PORT:-3000}:3000'
     env_file:
       - .env
     depends_on:
@@ -22,7 +23,8 @@ services:
       POSTGRES_USER: ${DB_USER:-sijalink}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-sijalink_prod}
     ports:
-      - '${DB_PORT:-5432}:5432'
+      # Database tidak perlu dibuka ke internet; ubah hanya jika admin lokal butuh akses.
+      - '127.0.0.1:${DB_HOST_PORT:-15432}:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -39,8 +41,9 @@ services:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
     ports:
-      - '${MINIO_PORT:-9000}:9000'
-      - '9001:9001'
+      # 9000 dipakai Portainer di host. MinIO gunakan port host terpisah.
+      - '${MINIO_HOST_PORT:-19000}:9000'
+      - '${MINIO_CONSOLE_HOST_PORT:-19001}:9001'
     volumes:
       - minio_data:/data
 

@@ -49,6 +49,7 @@ ssh -p "$SSH_PORT" "$TARGET" "
 # 4. Build dan restart container di server
 echo "🐳 Menjalankan Docker Compose di server..."
 ssh -p "$SSH_PORT" "$TARGET" "
+  export DOCKER_CONFIG=\${DOCKER_CONFIG:-/DATA/Development/.docker}
   cd $REMOTE_DIR/deploy
   docker compose pull minio postgres || true
   docker compose up -d --build
