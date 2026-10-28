@@ -1,4 +1,4 @@
-/** Konfigurasi koneksi RouterOS v6. Jangan pernah dikirim ke aplikasi klien. */
+/** Konfigurasi koneksi RouterOS. Jangan pernah dikirim ke aplikasi klien. */
 export interface RouterConnectionConfig {
   host: string;
   port: number;
@@ -10,6 +10,10 @@ export interface RouterConnectionConfig {
 
 /** Batas abstraksi agar implementasi protokol dapat ditukar dan diuji. */
 export interface RouterOsClient {
-  connect(config: RouterConnectionConfig): Promise<void>;
-  close(): Promise<void>;
+  connect(): Promise<unknown>;
+  write(
+    command: string,
+    ...params: string[]
+  ): Promise<Record<string, unknown>[]>;
+  close(): Promise<unknown>;
 }

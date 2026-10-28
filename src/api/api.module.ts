@@ -4,9 +4,10 @@ import { ApiController } from './api.controller.js';
 import { PrivatePhotosService } from './private-photos.service.js';
 import { ProfileController } from './profile.controller.js';
 import { LeaveController } from './leave.controller.js';
+import { MikrotikModule } from '../integrations/mikrotik/mikrotik.module.js';
 
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, MikrotikModule],
   controllers: [ApiController, ProfileController, LeaveController],
   providers: [PrivatePhotosService],
 })

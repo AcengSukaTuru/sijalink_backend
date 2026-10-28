@@ -42,6 +42,7 @@ import { randomUUID } from 'node:crypto';
 import { CurrentUser, JwtAuthGuard, Roles, RolesGuard } from '../auth/auth.js';
 import type { Principal } from '../auth/auth.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { MikrotikService } from '../integrations/mikrotik/mikrotik.service.js';
 import {
   PrivatePhotosService,
   type PhotoUpload,
@@ -131,6 +132,7 @@ export class ApiController {
   constructor(
     private readonly db: PrismaService,
     private readonly photos: PrivatePhotosService,
+    private readonly mikrotik: MikrotikService,
   ) {}
 
   @ApiTags('Users')
@@ -819,6 +821,82 @@ export class ApiController {
       },
     });
   }
+  @ApiTags('Routers')
+  @Get('routers/:id/health')
+  async routerHealth(@Param('id') id: string) {
+    const router = await this.db.router.findUnique({
+      where: { id },
+      select: { id: true, managementAddress: true, enabled: true },
+    });
+    if (!router) throw new NotFoundException();
+    if (!router.enabled)
+      throw new ConflictException('Router sedang dinonaktifkan.');
+    if (router.managementAddress !== this.mikrotik.getConnectionConfig().host)
+      throw new ConflictException(
+        'Router belum terhubung ke credential MikroTik aktif.',
+      );
+
+    const checkedAt = new Date();
+    try {
+      const [identity, resource] = await Promise.all([
+        this.mikrotik.identity(),
+        this.mikrotik.resource(),
+      ]);
+      await this.db.router.update({
+        where: { id },
+        data: {
+          status: 'ONLINE',
+          lastCheckedAt: checkedAt,
+          version:
+            typeof resource[0]?.version === 'string'
+              ? resource[0].version
+              : '',
+        },
+      });
+      return {
+        routerId: id,
+        reachable: true,
+        checkedAt,
+        identity: identity[0] ?? null,
+        resource: resource[0] ?? null,
+      };
+    } catch (error) {
+      await this.db.router.update({
+        where: { id },
+        data: { status: 'OFFLINE', lastCheckedAt: checkedAt },
+      });
+      throw error;
+    }
+  }
+
+  @ApiTags('Routers')
+  @Get('routers/:id/resource')
+  async routerResource(@Param('id') id: string) {
+    const router = await this.db.router.findUnique({
+      where: { id },
+      select: { id: true, managementAddress: true, enabled: true },
+    });
+    if (!router) throw new NotFoundException();
+    if (!router.enabled) throw new ConflictException('Router sedang dinonaktifkan.');
+    if (router.managementAddress !== this.mikrotik.getConnectionConfig().host)
+      throw new ConflictException('Router belum terhubung ke credential MikroTik aktif.');
+    return { routerId: id, resource: await this.mikrotik.resource() };
+  }
+
+  @ApiTags('Routers')
+  @Get('routers/:id/interfaces')
+  async routerInterfaces(@Param('id') id: string) {
+    const router = await this.db.router.findUnique({
+      where: { id },
+      select: { id: true, managementAddress: true, enabled: true },
+    });
+    if (!router) throw new NotFoundException();
+    if (!router.enabled) throw new ConflictException('Router sedang dinonaktifkan.');
+    if (router.managementAddress !== this.mikrotik.getConnectionConfig().host)
+      throw new ConflictException('Router belum terhubung ke credential MikroTik aktif.');
+    return { routerId: id, interfaces: await this.mikrotik.interfaces() };
+  }
+
   @ApiTags('Routers')
   @Get('routers/:id')
   router(@Param('id') id: string) {

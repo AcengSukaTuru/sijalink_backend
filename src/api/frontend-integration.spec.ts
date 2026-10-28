@@ -29,7 +29,7 @@ describe('frontend integration security', () => {
         findFirst: vi.fn().mockResolvedValue(null),
       },
     };
-    const api = new ApiController(db as never, {} as never);
+    const api = new ApiController(db as never, {} as never, {} as never);
     await api.tickets({ assigneeId: 'tech-2' }, technician);
     await api.spks({ assigneeId: 'tech-2' }, technician);
     expect(db.ticket.findMany.mock.calls[0][0].where.assigneeId).toBe('tech-1');
@@ -63,7 +63,7 @@ describe('frontend integration security', () => {
     const db = {
       $transaction: (fn: (value: typeof tx) => Promise<unknown>) => fn(tx),
     };
-    const api = new ApiController(db as never, {} as never);
+    const api = new ApiController(db as never, {} as never, {} as never);
     await expect(
       api.ticketStatus('other-ticket', { status: 'DONE' }, technician),
     ).rejects.toThrow(NotFoundException);
