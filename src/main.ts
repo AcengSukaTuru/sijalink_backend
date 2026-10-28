@@ -1,11 +1,16 @@
-import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module.js';
+import { AppLogger } from './common/logger/app-logger.js';
+import { httpLogger } from './common/logger/http-logger.middleware.js';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    logger: new AppLogger(),
+  });
 
+  app.use(httpLogger);
   app.setGlobalPrefix('api/v1');
   app.enableShutdownHooks();
   const origins = (process.env.CORS_ORIGINS ?? 'http://localhost:3000')
@@ -31,6 +36,21 @@ async function bootstrap() {
   });
   SwaggerModule.setup('docs', app, document);
 
-  await app.listen(process.env.PORT ?? 3000);
+  const port = process.env.PORT ?? 3000;
+  await app.listen(port);
+
+  const storageDriver = (process.env.STORAGE_DRIVER ?? 'local').toUpperCase();
+  const storageTarget =
+    storageDriver === 'MINIO'
+      ? `bucket: ${process.env.MINIO_BUCKET ?? 'sijalink-private'}`
+      : `dir: ${process.env.PRIVATE_UPLOAD_DIR ?? 'private-uploads'}`;
+
+  process.stdout.write(`
+\x1b[32m✔ SijaLink Backend siap melayani request!\x1b[0m
+  \x1b[36m➜\x1b[0m  \x1b[1mAPI Base:\x1b[0m     http://localhost:${port}/api/v1
+  \x1b[36m➜\x1b[0m  \x1b[1mSwagger Docs:\x1b[0m http://localhost:${port}/docs
+  \x1b[36m➜\x1b[0m  \x1b[1mDatabase:\x1b[0m     PostgreSQL (${process.env.DB_NAME ?? 'sijalink'})
+  \x1b[36m➜\x1b[0m  \x1b[1mStorage:\x1b[0m      ${storageDriver} (${storageTarget})
+\n`);
 }
 await bootstrap();
