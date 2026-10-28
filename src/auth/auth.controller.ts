@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiProperty, ApiTags } from '@nestjs/swagger';
 import { IsEmail, IsString, MinLength } from 'class-validator';
 import { CurrentUser, JwtAuthGuard } from './auth.js';
 import type { Principal } from './auth.js';
@@ -8,8 +8,20 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { publicProfile } from '../api/profile.controller.js';
 
 class LoginDto {
-  @IsEmail() email!: string;
-  @IsString() @MinLength(8) password!: string;
+  @ApiProperty({
+    example: 'admin.demo@sijalink.test',
+    description: 'Email akun pengguna.',
+  })
+  @IsEmail()
+  email!: string;
+
+  @ApiProperty({
+    example: 'SijaLink-Demo-2026!',
+    description: 'Password akun pengguna.',
+  })
+  @IsString()
+  @MinLength(8)
+  password!: string;
 }
 @ApiTags('auth')
 @Controller('auth')

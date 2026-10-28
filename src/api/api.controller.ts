@@ -22,6 +22,8 @@ import {
   ApiBearerAuth,
   ApiBody,
   ApiConsumes,
+  ApiProperty,
+  ApiPropertyOptional,
   ApiTags,
   PartialType,
 } from '@nestjs/swagger';
@@ -60,61 +62,97 @@ import {
 } from './rules.js';
 
 class PageDto {
+  @ApiPropertyOptional({ example: 'Budi' })
   @IsOptional() @IsString() @MaxLength(200) search?: string;
+  @ApiPropertyOptional({ example: 'ACTIVE' })
   @IsOptional() @IsString() status?: string;
+  @ApiPropertyOptional({ example: 'user-id-from-api' })
   @IsOptional() @IsString() assigneeId?: string;
+  @ApiPropertyOptional({ example: '1', default: '1' })
   @IsOptional() @IsString() page?: string;
+  @ApiPropertyOptional({ example: '20', default: '20' })
   @IsOptional() @IsString() limit?: string;
 }
 class CustomerDto {
+  @ApiProperty({ example: 'CUST-001' })
   @IsString() accountCode!: string;
+  @ApiProperty({ example: 'Budi Santoso' })
   @IsString() name!: string;
+  @ApiPropertyOptional({ example: '081234567890' })
   @IsOptional() @IsString() phone?: string;
+  @ApiPropertyOptional({ example: 'Jl. Merdeka No. 10, Jakarta' })
   @IsOptional() @IsString() address?: string;
+  @ApiPropertyOptional({ example: '50 Mbps' })
   @IsOptional() @IsString() plan?: string;
+  @ApiPropertyOptional({ example: '2026-01-15T00:00:00.000Z' })
   @IsOptional() @IsDateString() installationDate?: string;
+  @ApiPropertyOptional({ example: 'budi-customer' })
   @IsOptional() @IsString() pppoeUsername?: string;
+  @ApiPropertyOptional({ example: 'ODP-01 / Port 4' })
   @IsOptional() @IsString() odp?: string;
+  @ApiPropertyOptional({ example: 'router-id-from-api' })
   @IsOptional() @IsString() routerId?: string;
+  @ApiPropertyOptional({ enum: ['ACTIVE', 'ISOLATED', 'INACTIVE'], example: 'ACTIVE' })
   @IsOptional() @IsEnum(['ACTIVE', 'ISOLATED', 'INACTIVE']) status?:
     'ACTIVE' | 'ISOLATED' | 'INACTIVE';
 }
 class UpdateCustomerDto extends PartialType(CustomerDto) {}
 class TicketDto {
+  @ApiProperty({ example: 'Internet pelanggan tidak bisa digunakan' })
   @IsString() title!: string;
+  @ApiPropertyOptional({ example: 'Lampu LOS menyala merah.' })
   @IsOptional() @IsString() description?: string;
+  @ApiPropertyOptional({ example: 'HIGH' })
   @IsOptional() @IsString() priority?: string;
+  @ApiPropertyOptional({ example: 'customer-id-from-api' })
   @IsOptional() @IsString() customerId?: string;
 }
 class SpkDto {
+  @ApiProperty({ example: 'Pemasangan baru' })
   @IsString() workType!: string;
+  @ApiProperty({ example: 'Jl. Merdeka No. 10, Jakarta' })
   @IsString() address!: string;
+  @ApiPropertyOptional({ example: 'Pasang ONU dan tarik kabel dropcore.' })
   @IsOptional() @IsString() description?: string;
+  @ApiPropertyOptional({ example: 'customer-id-from-api' })
   @IsOptional() @IsString() customerId?: string;
 }
 class StatusDto {
+  @ApiProperty({ enum: ['NEW', 'IN_PROGRESS', 'DONE', 'CANCELLED'], example: 'IN_PROGRESS' })
   @IsEnum(['NEW', 'IN_PROGRESS', 'DONE', 'CANCELLED']) status!:
     'NEW' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED';
 }
 class AssignmentDto {
+  @ApiPropertyOptional({ example: 'user-id-from-api', nullable: true })
   @IsOptional() @IsString() assigneeId?: string | null;
 }
 class AttendanceDto {
+  @ApiPropertyOptional({ example: -6.200000, description: 'Latitude lokasi teknisi.' })
   @IsOptional() @Type(() => Number) @IsNumber() latitude?: number;
+  @ApiPropertyOptional({ example: 106.816666, description: 'Longitude lokasi teknisi.' })
   @IsOptional() @Type(() => Number) @IsNumber() longitude?: number;
 }
 class UserDto {
+  @ApiProperty({ example: 'Teknisi Baru' })
   @IsString() name!: string;
+  @ApiProperty({ example: 'teknisi.baru@sijalink.test' })
   @IsEmail() email!: string;
+  @ApiProperty({ example: 'Password-Aman-123!' })
   @IsString() @MinLength(12) password!: string;
+  @ApiPropertyOptional({ enum: ['ADMIN', 'SUPERVISOR', 'TECHNICIAN'], example: 'TECHNICIAN' })
   @IsOptional() @IsEnum(['ADMIN', 'SUPERVISOR', 'TECHNICIAN']) role?:
     'ADMIN' | 'SUPERVISOR' | 'TECHNICIAN';
 }
 class RouterDto {
+  @ApiProperty({ example: 'Router Pusat' })
   @IsString() name!: string;
+  @ApiProperty({ example: '192.168.88.1' })
   @IsString() managementAddress!: string;
+  @ApiPropertyOptional({ example: 'Ruang server utama' })
   @IsOptional() @IsString() location?: string;
+  @ApiPropertyOptional({ example: 'RouterOS 7.16' })
   @IsOptional() @IsString() version?: string;
+  @ApiPropertyOptional({ example: true, default: true })
   @IsOptional() @IsBoolean() enabled?: boolean;
 }
 class UpdateRouterDto extends PartialType(RouterDto) {}

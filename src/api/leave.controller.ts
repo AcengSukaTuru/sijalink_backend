@@ -11,7 +11,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiProperty, ApiTags } from '@nestjs/swagger';
 import { IsEnum, IsString, MaxLength, MinLength } from 'class-validator';
 import { CurrentUser, JwtAuthGuard, Roles, RolesGuard } from '../auth/auth.js';
 import type { Principal } from '../auth/auth.js';
@@ -20,12 +20,17 @@ import { businessDay, workRange } from './leave-rules.js';
 import { pagination } from './rules.js';
 
 class RequestLeaveDto {
+  @ApiProperty({ enum: ['SICK', 'PERMISSION'], example: 'PERMISSION' })
   @IsEnum(['SICK', 'PERMISSION']) type!: 'SICK' | 'PERMISSION';
+  @ApiProperty({ example: 'Ada keperluan keluarga.' })
   @IsString() @MinLength(5) @MaxLength(1000) reason!: string;
+  @ApiProperty({ example: '2026-11-10' })
   @IsString() startDate!: string;
+  @ApiProperty({ example: '2026-11-11' })
   @IsString() endDate!: string;
 }
 class ReviewDto {
+  @ApiProperty({ enum: ['APPROVED', 'REJECTED'], example: 'APPROVED' })
   @IsEnum(['APPROVED', 'REJECTED']) status!: 'APPROVED' | 'REJECTED';
 }
 
