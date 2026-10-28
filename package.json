@@ -10,6 +10,7 @@
     "build": "nest build",
     "db:generate": "prisma generate",
     "db:migrate:dev": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
     "deploy": "nest deploy",
@@ -26,6 +27,8 @@
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1158.0",
+    "@aws-sdk/s3-request-presigner": "^3.1158.0",
     "@nestjs/common": "^12.0.1",
     "@nestjs/config": "^12.0.1",
     "@nestjs/core": "^12.0.1",

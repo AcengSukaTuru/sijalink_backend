@@ -2,19 +2,23 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  Optional,
   StreamableFile,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { LocalStorageDriver } from '../storage/local-storage.driver.js';
+import { StorageService } from '../storage/storage.service.js';
+import type { StorageDriver } from '../storage/storage.types.js';
 
 export type PhotoUpload = { buffer: Buffer; size: number };
 
 @Injectable()
 export class PrivatePhotosService {
-  private readonly root = resolve(
-    process.env.PRIVATE_UPLOAD_DIR ?? 'private-uploads',
-  );
+  private readonly storage: StorageDriver;
+
+  constructor(@Optional() storageService?: StorageService) {
+    this.storage = storageService?.getDriver() ?? new LocalStorageDriver();
+  }
 
   async save(file?: PhotoUpload): Promise<string> {
     if (!file?.buffer?.length || file.size > 5 * 1024 * 1024) {
@@ -35,9 +39,14 @@ export class PrivatePhotosService {
           : null;
     if (!ext)
       throw new BadRequestException('Format foto harus JPEG, PNG, atau WebP.');
-    await mkdir(this.root, { recursive: true });
     const key = `${randomUUID()}.${ext}`;
-    await writeFile(join(this.root, key), bytes, { flag: 'wx', mode: 0o600 });
+    const contentType =
+      ext === 'png'
+        ? 'image/png'
+        : ext === 'webp'
+          ? 'image/webp'
+          : 'image/jpeg';
+    await this.storage.write(key, bytes, contentType);
     return key;
   }
 
@@ -45,7 +54,7 @@ export class PrivatePhotosService {
     if (!key || !this.validKey(key))
       throw new NotFoundException('Foto tidak ditemukan.');
     try {
-      const buffer = await readFile(join(this.root, key));
+      const buffer = await this.storage.read(key);
       const type = key.endsWith('.png')
         ? 'image/png'
         : key.endsWith('.webp')
@@ -62,10 +71,18 @@ export class PrivatePhotosService {
   async remove(key: string | null): Promise<void> {
     if (!key || !this.validKey(key)) return;
     try {
-      await unlink(join(this.root, key));
+      await this.storage.delete(key);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
+  }
+
+  async getSignedUrl(
+    key: string | null,
+    expiresInSeconds?: number,
+  ): Promise<string | null> {
+    if (!key || !this.validKey(key)) return null;
+    return (await this.storage.getSignedUrl?.(key, expiresInSeconds)) ?? null;
   }
 
   private validKey(key: string) {

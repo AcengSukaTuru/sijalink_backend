@@ -5,6 +5,7 @@ import { MikrotikModule } from './integrations/mikrotik/mikrotik.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { ApiModule } from './api/api.module.js';
+import { StorageModule } from './storage/storage.module.js';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { ApiModule } from './api/api.module.js';
     }),
     PrismaModule,
     AuthModule,
+    StorageModule,
     ApiModule,
     HealthModule,
     MikrotikModule,
