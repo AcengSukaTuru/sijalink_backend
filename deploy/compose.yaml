@@ -23,8 +23,8 @@ services:
       POSTGRES_USER: ${DB_USER:-sijalink}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-sijalink_prod}
     ports:
-      # Database tidak perlu dibuka ke internet; ubah hanya jika admin lokal butuh akses.
-      - '127.0.0.1:${DB_HOST_PORT:-15432}:5432'
+      # Database hanya dibuka di IP Tailscale, bukan LAN atau internet publik.
+      - '${TAILSCALE_IP:-100.120.0.26}:${DB_HOST_PORT:-15432}:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
